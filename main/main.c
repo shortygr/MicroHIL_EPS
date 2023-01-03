@@ -49,6 +49,7 @@ int maxSpeed = 300;
 int maxRPM = 16000;
 int encoderPos = 0;
 int counter = 120;
+int speedSignal = 0;
 //int prescaler_speed = 2;
 uint32_t coreFrequency = 40000000;
 gptimer_handle_t gptimer_rpm = NULL;
@@ -113,8 +114,9 @@ static bool rpm_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data
 }
 
 static bool speed_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
-{
-  gpio_set_level(SIGNAL_WHEEL_PIN, !gpio_get_level(SIGNAL_WHEEL_PIN));
+{ 
+  speedSignal = !speedSignal;
+  gpio_set_level(SIGNAL_WHEEL_PIN, speedSignal);
   return pdTRUE;
 }
 
@@ -128,12 +130,12 @@ static void rpm_timer_init()
 	};
     ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer_rpm));
 
-//	gptimer_alarm_config_t alarm_config = {
-//        .flags.auto_reload_on_alarm = 1,
-//		.alarm_count = 800000,
-//    };
-//	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_rpm, &alarm_config));
-
+/*  	gptimer_alarm_config_t alarm_config = {
+        .flags.auto_reload_on_alarm = 1,
+		.alarm_count = 800000,
+    };
+	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_rpm, &alarm_config));
+ */
 	gptimer_event_callbacks_t cbs = {
     	.on_alarm = rpm_timer_isr, // register user callback
 }	;
@@ -151,18 +153,18 @@ static void speed_timer_init()
 	};
     ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer_speed));
 
-//	gptimer_alarm_config_t alarm_config = {
-//        .flags.auto_reload_on_alarm = 1,
-//		.alarm_count = 800000,
-//    };
-//	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed, &alarm_config));
-
+/* 	gptimer_alarm_config_t alarm_config = {
+        .flags.auto_reload_on_alarm = 1,
+		.alarm_count = 800000,
+    };
+	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed, &alarm_config));
+ */
 	gptimer_event_callbacks_t cbs = {
     	.on_alarm = speed_timer_isr, // register user callback
 }	;
-	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer_rpm, &cbs, (void*) NULL));
-    ESP_ERROR_CHECK(gptimer_enable(gptimer_rpm));
-    ESP_ERROR_CHECK(gptimer_stop(gptimer_rpm));
+	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer_speed, &cbs, (void*) NULL));
+    ESP_ERROR_CHECK(gptimer_enable(gptimer_speed));
+    ESP_ERROR_CHECK(gptimer_stop(gptimer_speed));
 }
 
 
@@ -300,8 +302,8 @@ void app_main(void)
     ssd1306_display_text(&dev, 4, "Engine [rpm]", 17, false);
 
 
-while(1)
-{
+  while(1)
+  {
 	if(mode != old_mode)
 	{
 		ssd1306_clear_line(&dev,2,false);
@@ -352,19 +354,6 @@ while(1)
 	ESP_LOGI(tag, "Only panel with 128x64 supported");
 #endif // CONFIG_SSD1306_128x32
 
+  } 
 }
-
-
 	
-	
-#if 0
-	// Fade Out
-	for(int contrast=0xff;contrast>0;contrast=contrast-0x20) {
-		ssd1306_contrast(&dev, contrast);
-		vTaskDelay(40);
-	}
-#endif
-
-	// Restart module
-	esp_restart();
-}
