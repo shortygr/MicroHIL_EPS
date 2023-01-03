@@ -2,12 +2,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
+#include "driver/gptimer.h"
 #include "ssd1306.h"
 #include "font8x8_basic.h"
+#include "vehicledata.h"
 
 #define tag "SSD1306"
 
@@ -18,11 +21,15 @@
 #define GPIO_BIT_MASK_BUTTON  (1ULL<<GPIO_NUM_25)
 
 
+#define SIGNAL_RPM_PIN 18 //12
+#define SIGNAL_WHEEL_PIN 19 //14
+#define GPIO_BIT_MASK_SIGNAL  ((1ULL<<GPIO_NUM_18) | (1ULL<<GPIO_NUM_19)) 
+//Test pins for input signals
+#define GPIO_BIT_MASK_SIGNALTEST  ((1ULL<<GPIO_NUM_12) | (1ULL<<GPIO_NUM_14)) 
+
+
 #define SPEED_MODE 0
 #define RPM_MODE   1
-
-#define LOW 0
-#define HIGH 1
 
 int enginespeed = 0;
 int old_enginespeed = -1;
@@ -35,13 +42,17 @@ int encoderPinANow = LOW;
 unsigned long debounce_button = 0;
 int debounce_time_button = 200;
 unsigned long debounce_encoder = 0;
-int debounce_time_encoder = 10;
+int debounce_time_encoder = 1;
 int incSpeed = 5;
 int incRPM = 500;
 int maxSpeed = 300;
 int maxRPM = 16000;
 int encoderPos = 0;
-
+int counter = 120;
+//int prescaler_speed = 2;
+uint32_t coreFrequency = 40000000;
+gptimer_handle_t gptimer_rpm = NULL;
+gptimer_handle_t gptimer_speed = NULL;
 
 
 static void encoder_interrupt_handler(void *args)
@@ -92,19 +103,98 @@ static void button_interrupt_handler(void *args)
   }
 }
 
+static bool rpm_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
+{
+  gpio_set_level(SIGNAL_RPM_PIN,crankValue[counter]);
+  counter--;
+  if(counter==0)
+    counter=119;
+  return pdTRUE;
+}
+
+static bool speed_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
+{
+  gpio_set_level(SIGNAL_WHEEL_PIN, !gpio_get_level(SIGNAL_WHEEL_PIN));
+  return pdTRUE;
+}
+
+
+static void rpm_timer_init()
+{
+	gptimer_config_t timer_config = {
+    	.clk_src = GPTIMER_CLK_SRC_DEFAULT,
+    	.direction = GPTIMER_COUNT_UP,
+    	.resolution_hz = coreFrequency, 
+	};
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer_rpm));
+
+//	gptimer_alarm_config_t alarm_config = {
+//        .flags.auto_reload_on_alarm = 1,
+//		.alarm_count = 800000,
+//    };
+//	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_rpm, &alarm_config));
+
+	gptimer_event_callbacks_t cbs = {
+    	.on_alarm = rpm_timer_isr, // register user callback
+}	;
+	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer_rpm, &cbs, (void*) NULL));
+    ESP_ERROR_CHECK(gptimer_enable(gptimer_rpm));
+    ESP_ERROR_CHECK(gptimer_stop(gptimer_rpm));
+}
+
+static void speed_timer_init()
+{
+	gptimer_config_t timer_config = {
+    	.clk_src = GPTIMER_CLK_SRC_DEFAULT,
+    	.direction = GPTIMER_COUNT_UP,
+    	.resolution_hz = coreFrequency, 
+	};
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer_speed));
+
+//	gptimer_alarm_config_t alarm_config = {
+//        .flags.auto_reload_on_alarm = 1,
+//		.alarm_count = 800000,
+//    };
+//	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed, &alarm_config));
+
+	gptimer_event_callbacks_t cbs = {
+    	.on_alarm = speed_timer_isr, // register user callback
+}	;
+	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer_rpm, &cbs, (void*) NULL));
+    ESP_ERROR_CHECK(gptimer_enable(gptimer_rpm));
+    ESP_ERROR_CHECK(gptimer_stop(gptimer_rpm));
+}
+
+
+
 void setup(void)
 {
     //zero-initialize the config structure.
     gpio_config_t io_conf = {};
+//configure encoder pins
     io_conf.intr_type = GPIO_INTR_ANYEDGE;
     io_conf.mode = GPIO_MODE_INPUT;
     io_conf.pin_bit_mask = GPIO_BIT_MASK_ENCODER;
     io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 1;
     gpio_config(&io_conf);
-
+    
+//configure button pin
     io_conf.intr_type = GPIO_INTR_NEGEDGE;
  	io_conf.pin_bit_mask = GPIO_BIT_MASK_BUTTON; 
+    gpio_config(&io_conf);
+
+//configure signal pin
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = GPIO_BIT_MASK_SIGNAL;
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
+
+//configure test pins for speed and rpm signal
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pin_bit_mask = GPIO_BIT_MASK_SIGNALTEST;
     gpio_config(&io_conf);
 
     gpio_install_isr_service(0);
@@ -112,19 +202,63 @@ void setup(void)
 	gpio_isr_handler_add(ENCODER_PIN_B, encoder_interrupt_handler, (void*)ENCODER_PIN_B);
 	gpio_isr_handler_add(BUTTON_PIN, button_interrupt_handler, (void*)BUTTON_PIN);
 
+	rpm_timer_init();
+	speed_timer_init();
+}
+
+void calcRPMFrequency()
+{
+  int f;
+  uint64_t tf;
+  if(enginespeed > 0)
+  {
+    f=enginespeed*2;
+    tf=coreFrequency/f-1;
+	gptimer_alarm_config_t alarm_config = {
+        .flags.auto_reload_on_alarm = 1,
+		.alarm_count = tf,
+    };
+	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_rpm, &alarm_config));
+    ESP_ERROR_CHECK(gptimer_start(gptimer_rpm));
+  }
+  else
+  {
+    ESP_ERROR_CHECK(gptimer_stop(gptimer_rpm));
+  }
+}
+
+void calcSpeedFrequency()
+{
+  float speedms; 
+  float ff;
+  float f;
+  uint64_t tf;
+  if(vehiclespeed > 0)
+  {
+    speedms = vehiclespeed/3.6;
+    ff = speedms/rollingCircumference*pulsesPerRotation;
+    f = 2*ff;
+    tf=round(coreFrequency/f-1);
+	gptimer_alarm_config_t alarm_config = {
+        .flags.auto_reload_on_alarm = 1,
+		.alarm_count = tf,
+    };
+	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed, &alarm_config));
+    ESP_ERROR_CHECK(gptimer_start(gptimer_speed));
+  }
+  else
+  {
+    ESP_ERROR_CHECK(gptimer_stop(gptimer_speed));
+  }
+
 }
 
 void app_main(void)
 {
-
 	char str_output[17];
-
-
 	SSD1306_t dev;
 
 	setup();
-
-
 
 #if CONFIG_I2C_INTERFACE
 	ESP_LOGI(tag, "INTERFACE is i2c");
@@ -191,6 +325,7 @@ while(1)
 	}	
 	if(vehiclespeed != old_vehiclespeed)
 	{
+		calcSpeedFrequency();
 		ssd1306_clear_line(&dev,2,false);
 		if(mode == SPEED_MODE)
 			sprintf(str_output,">%15d",vehiclespeed);
@@ -201,6 +336,7 @@ while(1)
 	}
 	if(enginespeed != old_enginespeed)
 	{
+		calcRPMFrequency();
 		ssd1306_clear_line(&dev,6,false);
 		if(mode == RPM_MODE)
 			sprintf(str_output,">%15d",enginespeed);
