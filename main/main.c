@@ -42,7 +42,7 @@ int encoderPinANow = LOW;
 unsigned long debounce_button = 0;
 int debounce_time_button = 200;
 unsigned long debounce_encoder = 0;
-int debounce_time_encoder = 1;
+int debounce_time_encoder = 10;
 int incSpeed = 5;
 int incRPM = 500;
 int maxSpeed = 300;
@@ -63,9 +63,9 @@ static void encoder_interrupt_handler(void *args)
     encoderPinANow = gpio_get_level(ENCODER_PIN_A);
     if ((encoderPinALast == HIGH) && (encoderPinANow == LOW)) {
       if (gpio_get_level(ENCODER_PIN_B) == HIGH) {
-        encoderPos = 1;
-      } else {
         encoderPos = -1;
+      } else {
+        encoderPos = 1;
       }
     }
     encoderPinALast = encoderPinANow;
@@ -171,41 +171,44 @@ static void speed_timer_init()
 
 void setup(void)
 {
-    //zero-initialize the config structure.
-    gpio_config_t io_conf = {};
+  //zero-initialize the config structure.
+  gpio_config_t io_conf = {};
 //configure encoder pins
-    io_conf.intr_type = GPIO_INTR_ANYEDGE;
-    io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pin_bit_mask = GPIO_BIT_MASK_ENCODER;
-    io_conf.pull_down_en = 0;
-    io_conf.pull_up_en = 1;
-    gpio_config(&io_conf);
+  io_conf.intr_type = GPIO_INTR_ANYEDGE;
+  io_conf.mode = GPIO_MODE_INPUT;
+  io_conf.pin_bit_mask = GPIO_BIT_MASK_ENCODER;
+  io_conf.pull_down_en = 0;
+  io_conf.pull_up_en = 1;
+  gpio_config(&io_conf);
     
 //configure button pin
-    io_conf.intr_type = GPIO_INTR_NEGEDGE;
+  io_conf.intr_type = GPIO_INTR_NEGEDGE;
  	io_conf.pin_bit_mask = GPIO_BIT_MASK_BUTTON; 
-    gpio_config(&io_conf);
+  gpio_config(&io_conf);
 
 //configure signal pin
-    io_conf.intr_type = GPIO_INTR_DISABLE;
-    io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pin_bit_mask = GPIO_BIT_MASK_SIGNAL;
-    io_conf.pull_down_en = 0;
-    io_conf.pull_up_en = 0;
-    gpio_config(&io_conf);
+  io_conf.intr_type = GPIO_INTR_DISABLE;
+  io_conf.mode = GPIO_MODE_OUTPUT;
+  io_conf.pin_bit_mask = GPIO_BIT_MASK_SIGNAL;
+  io_conf.pull_down_en = 0;
+  io_conf.pull_up_en = 0;
+  gpio_config(&io_conf);
 
 //configure test pins for speed and rpm signal
-    io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pin_bit_mask = GPIO_BIT_MASK_SIGNALTEST;
-    gpio_config(&io_conf);
+  io_conf.mode = GPIO_MODE_INPUT;
+  io_conf.pin_bit_mask = GPIO_BIT_MASK_SIGNALTEST;
+  gpio_config(&io_conf);
 
-    gpio_install_isr_service(0);
+  gpio_install_isr_service(0);
 	gpio_isr_handler_add(ENCODER_PIN_A, encoder_interrupt_handler, (void*)ENCODER_PIN_A);
 	gpio_isr_handler_add(ENCODER_PIN_B, encoder_interrupt_handler, (void*)ENCODER_PIN_B);
 	gpio_isr_handler_add(BUTTON_PIN, button_interrupt_handler, (void*)BUTTON_PIN);
 
 	rpm_timer_init();
 	speed_timer_init();
+
+  for(int i=0;i<=119;i++)
+    ESP_LOGI(tag, "Crank: %3d:%1d",i,crankValue[i]);
 }
 
 void calcRPMFrequency()

@@ -5,7 +5,7 @@
 float rollingCircumference = 1.959;
 int pulsesPerRotation = 20;
 
-//Revese seeting of signal as we switch to ground on high level
+//Revese seeting of signal as we switch to ground on HIGH level
 int crankValue[120] = {HIGH,HIGH,HIGH,HIGH,HIGH,LOW,HIGH,LOW,HIGH,LOW,
                        HIGH,LOW,HIGH,LOW,HIGH,LOW,HIGH,LOW,HIGH,LOW,
                        HIGH,LOW,HIGH,LOW,HIGH,LOW,HIGH,LOW,HIGH,LOW,
