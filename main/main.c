@@ -304,56 +304,57 @@ void app_main(void)
 
   while(1)
   {
-	if(mode != old_mode)
-	{
-		ssd1306_clear_line(&dev,2,false);
-		ssd1306_clear_line(&dev,6,false);
-		if(mode == SPEED_MODE)
-		{
-			sprintf(str_output,">%15d",vehiclespeed);	
-			ssd1306_display_text(&dev,2,str_output, 16, false);
-			sprintf(str_output,"%16d",enginespeed);
-   		    ssd1306_display_text(&dev,6,str_output, 16, false);
+	  if(mode != old_mode)
+	  {
+		  ssd1306_clear_line(&dev,2,false);
+		  ssd1306_clear_line(&dev,6,false);
+		  if(mode == SPEED_MODE)
+		  {
+			  sprintf(str_output,">%15d",vehiclespeed);	
+			  ssd1306_display_text(&dev,2,str_output, 16, false);
+			  sprintf(str_output,"%16d",enginespeed);
+   		  ssd1306_display_text(&dev,6,str_output, 16, false);
 
-		}
-		else
-		{
-			sprintf(str_output,">%15d",enginespeed);
-			ssd1306_display_text(&dev,6,str_output, 16, false);
-			sprintf(str_output,"%16d",vehiclespeed);
-			ssd1306_display_text(&dev,2,str_output, 16, false);	
-		}
-		old_mode = mode;
-	}	
-	if(vehiclespeed != old_vehiclespeed)
-	{
-		calcSpeedFrequency();
-		ssd1306_clear_line(&dev,2,false);
-		if(mode == SPEED_MODE)
-			sprintf(str_output,">%15d",vehiclespeed);
-		else
-			sprintf(str_output,"%16d",vehiclespeed);
-		ssd1306_display_text(&dev,2,str_output, 16, false);
-		old_vehiclespeed = vehiclespeed;
-	}
-	if(enginespeed != old_enginespeed)
-	{
-		calcRPMFrequency();
-		ssd1306_clear_line(&dev,6,false);
-		if(mode == RPM_MODE)
-			sprintf(str_output,">%15d",enginespeed);
-		else
-			sprintf(str_output,"%16d",enginespeed);
-		ssd1306_display_text(&dev,6,str_output, 16, false);
-		old_enginespeed = enginespeed;
-	}
-#endif // CONFIG_SSD1306_128x64
+		  }
+		  else
+		  {
+			  sprintf(str_output,">%15d",enginespeed);
+			  ssd1306_display_text(&dev,6,str_output, 16, false);
+			  sprintf(str_output,"%16d",vehiclespeed);
+			  ssd1306_display_text(&dev,2,str_output, 16, false);	
+		  }
+		  old_mode = mode;
+	  }	
+	  if(vehiclespeed != old_vehiclespeed)
+	  {
+		  calcSpeedFrequency();
+		  ssd1306_clear_line(&dev,2,false);
+		  if(mode == SPEED_MODE)
+			  sprintf(str_output,">%15d",vehiclespeed);
+		  else
+			  sprintf(str_output,"%16d",vehiclespeed);
+		  ssd1306_display_text(&dev,2,str_output, 16, false);
+		  old_vehiclespeed = vehiclespeed;
+	  }
+	  if(enginespeed != old_enginespeed)
+	  {
+		  calcRPMFrequency();
+		  ssd1306_clear_line(&dev,6,false);
+		  if(mode == RPM_MODE)
+			  sprintf(str_output,">%15d",enginespeed);
+		  else
+			  sprintf(str_output,"%16d",enginespeed);
+		  ssd1306_display_text(&dev,6,str_output, 16, false);
+		  old_enginespeed = enginespeed;
+	  }
+    vTaskDelay(50);
+  }
+  #endif // CONFIG_SSD1306_128x64
 
 
 #if CONFIG_SSD1306_128x32
 	ESP_LOGI(tag, "Only panel with 128x64 supported");
 #endif // CONFIG_SSD1306_128x32
 
-  } 
 }
 	
