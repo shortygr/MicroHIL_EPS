@@ -10,7 +10,7 @@
 #include "driver/gptimer.h"
 #include "ssd1306.h"
 #include "font8x8_basic.h"
-#include "vehicledata.h"
+#include <vehicledata.h>
 
 #define tag "SSD1306"
 
@@ -42,7 +42,7 @@ int encoderPinANow = LOW;
 unsigned long debounce_button = 0;
 int debounce_time_button = 200;
 unsigned long debounce_encoder = 0;
-int debounce_time_encoder = 10;
+int debounce_time_encoder = 0;
 int incSpeed = 5;
 int incRPM = 500;
 int maxSpeed = 300;
@@ -117,6 +117,7 @@ static bool speed_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_da
 { 
   speedSignal = !speedSignal;
   gpio_set_level(SIGNAL_WHEEL_PIN, speedSignal);
+//  gpio_set_level(SIGNAL_WHEEL_PIN, 1);
   return pdTRUE;
 }
 
@@ -194,10 +195,6 @@ void setup(void)
   io_conf.pull_up_en = 0;
   gpio_config(&io_conf);
 
-//configure test pins for speed and rpm signal
-  io_conf.mode = GPIO_MODE_INPUT;
-  io_conf.pin_bit_mask = GPIO_BIT_MASK_SIGNALTEST;
-  gpio_config(&io_conf);
 
   gpio_install_isr_service(0);
 	gpio_isr_handler_add(ENCODER_PIN_A, encoder_interrupt_handler, (void*)ENCODER_PIN_A);
