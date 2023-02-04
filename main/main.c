@@ -108,7 +108,7 @@ static bool rpm_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data
 {
   gpio_set_level(SIGNAL_RPM_PIN,crankValue[counter]);
   counter--;
-  if(counter==0)
+  if(counter==-1)
     counter=119;
   return pdTRUE;
 }
@@ -221,7 +221,7 @@ void calcRPMFrequency()
 		.alarm_count = tf,
     };
 	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_rpm, &alarm_config));
-    ESP_ERROR_CHECK(gptimer_start(gptimer_rpm));
+  ESP_ERROR_CHECK(gptimer_start(gptimer_rpm));
   }
   else
   {
