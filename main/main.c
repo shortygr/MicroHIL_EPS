@@ -6,18 +6,22 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "driver/gpio.h"
 #include "driver/gptimer.h"
 #include "ssd1306.h"
 #include "font8x8_basic.h"
 #include <vehicledata.h>
 
+
+
 #define tag "SSD1306"
 
 #define ENCODER_PIN_A 26
 #define ENCODER_PIN_B 27
 #define BUTTON_PIN 25
-#define GPIO_BIT_MASK_ENCODER  ((1ULL<<GPIO_NUM_26) | (1ULL<<GPIO_NUM_27)) 
+#define GPIO_BIT_MASK_ENCODER_PIN_A  (1ULL<<GPIO_NUM_26)
+#define GPIO_BIT_MASK_ENCODER_PIN_B  (1ULL<<GPIO_NUM_27) 
 #define GPIO_BIT_MASK_BUTTON  (1ULL<<GPIO_NUM_25)
 
 
@@ -31,16 +35,16 @@
 #define SPEED_MODE 0
 #define RPM_MODE   1
 
-int enginespeed = 0;
+volatile int enginespeed = 0;
 int old_enginespeed = -1;
-int vehiclespeed = 0;
+volatile int vehiclespeed = 0;
 int old_vehiclespeed = -1;
 int mode = RPM_MODE;
 int old_mode = RPM_MODE;
-int encoderPinALast = LOW;
-int encoderPinANow = LOW;
+volatile int encoderPinALast = LOW;
+volatile int encoderPinANow = LOW;
 unsigned long debounce_button = 0;
-int debounce_time_button = 200;
+int debounce_time_button = 50;
 unsigned long debounce_encoder = 0;
 int debounce_time_encoder = 0;
 int incSpeed = 5;
@@ -54,43 +58,61 @@ int speedSignal = 0;
 uint32_t coreFrequency = 40000000;
 gptimer_handle_t gptimer_rpm = NULL;
 gptimer_handle_t gptimer_speed = NULL;
-
+//Interrupt Queue
+QueueHandle_t interputQueue;
+//Log for Encoder
+static const char* TAG_Encoder = "Encoder";
 
 static void encoder_interrupt_handler(void *args)
 {
   if((xTaskGetTickCount()-debounce_encoder)>debounce_time_encoder)
   {
     encoderPinANow = gpio_get_level(ENCODER_PIN_A);
-    if ((encoderPinALast == HIGH) && (encoderPinANow == LOW)) {
-      if (gpio_get_level(ENCODER_PIN_B) == HIGH) {
+    if ((encoderPinALast == HIGH) && (encoderPinANow == LOW)) 
+    {
+      if (gpio_get_level(ENCODER_PIN_B) == HIGH) 
+      {
         encoderPos = -1;
-      } else {
+      } 
+      else 
+      {
         encoderPos = 1;
       }
+      encoderPinALast = encoderPinANow;
+      xQueueSendFromISR(interputQueue, &encoderPos, NULL);
+      debounce_encoder=xTaskGetTickCount();
     }
-    encoderPinALast = encoderPinANow;
-    if(mode == SPEED_MODE)
-    {
-      vehiclespeed = vehiclespeed + incSpeed * encoderPos;
-      if(vehiclespeed > maxSpeed)
-        vehiclespeed = maxSpeed;
-      if (vehiclespeed < 0)
-        vehiclespeed = 0;
-//      calcSpeedFrequency();
-    }
-    else
-    {
-      enginespeed = enginespeed + incRPM * encoderPos;
-      if(enginespeed > maxRPM)
-        enginespeed = maxRPM;
-      if(enginespeed < 0)
-        enginespeed = 0;
-//      calcRPMFrequency();
-    }
-    debounce_encoder=xTaskGetTickCount();
   }
-
 }
+
+void Encoder_Control_Task(void *params)
+{
+  int encoderPos = 0;
+  while (true)
+  {
+    if (xQueueReceive(interputQueue, &encoderPos, portMAX_DELAY))
+    ESP_LOGD(TAG_Encoder, "Encoder Position: %d", encoderPos);
+    {
+      if(mode == SPEED_MODE)
+      {
+        vehiclespeed = vehiclespeed + incSpeed * encoderPos;
+        if(vehiclespeed > maxSpeed)
+          vehiclespeed = maxSpeed;
+        if (vehiclespeed < 0)
+          vehiclespeed = 0;
+      }  
+      else
+      {
+        enginespeed = enginespeed + incRPM * encoderPos;
+        if(enginespeed > maxRPM)
+          enginespeed = maxRPM;
+        if(enginespeed < 0)
+          enginespeed = 0;
+      }
+    }
+  }
+}
+
 
 static void button_interrupt_handler(void *args)
 {
@@ -139,10 +161,10 @@ static void rpm_timer_init()
  */
 	gptimer_event_callbacks_t cbs = {
     	.on_alarm = rpm_timer_isr, // register user callback
-}	;
+  };
 	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer_rpm, &cbs, (void*) NULL));
-    ESP_ERROR_CHECK(gptimer_enable(gptimer_rpm));
-    ESP_ERROR_CHECK(gptimer_stop(gptimer_rpm));
+  ESP_ERROR_CHECK(gptimer_enable(gptimer_rpm));
+  ESP_ERROR_CHECK(gptimer_stop(gptimer_rpm));
 }
 
 static void speed_timer_init()
@@ -162,10 +184,10 @@ static void speed_timer_init()
  */
 	gptimer_event_callbacks_t cbs = {
     	.on_alarm = speed_timer_isr, // register user callback
-}	;
+  }	;
 	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer_speed, &cbs, (void*) NULL));
-    ESP_ERROR_CHECK(gptimer_enable(gptimer_speed));
-    ESP_ERROR_CHECK(gptimer_stop(gptimer_speed));
+  ESP_ERROR_CHECK(gptimer_enable(gptimer_speed));
+  ESP_ERROR_CHECK(gptimer_stop(gptimer_speed));
 }
 
 
@@ -174,14 +196,23 @@ void setup(void)
 {
   //zero-initialize the config structure.
   gpio_config_t io_conf = {};
-//configure encoder pins
+//configure encoder pin A
   io_conf.intr_type = GPIO_INTR_ANYEDGE;
   io_conf.mode = GPIO_MODE_INPUT;
-  io_conf.pin_bit_mask = GPIO_BIT_MASK_ENCODER;
+  io_conf.pin_bit_mask = GPIO_BIT_MASK_ENCODER_PIN_A;
   io_conf.pull_down_en = 0;
   io_conf.pull_up_en = 1;
   gpio_config(&io_conf);
     
+//configure encoder pin B
+  io_conf.intr_type = GPIO_INTR_DISABLE;
+  io_conf.mode = GPIO_MODE_INPUT;
+  io_conf.pin_bit_mask = GPIO_BIT_MASK_ENCODER_PIN_B;
+  io_conf.pull_down_en = 0;
+  io_conf.pull_up_en = 1;
+  gpio_config(&io_conf);
+
+
 //configure button pin
   io_conf.intr_type = GPIO_INTR_NEGEDGE;
  	io_conf.pin_bit_mask = GPIO_BIT_MASK_BUTTON; 
@@ -195,17 +226,19 @@ void setup(void)
   io_conf.pull_up_en = 0;
   gpio_config(&io_conf);
 
+  interputQueue = xQueueCreate(10, sizeof(int));
+  xTaskCreate(Encoder_Control_Task, "Encoer_Control_Task", 2048, NULL, 1, NULL);
 
   gpio_install_isr_service(0);
 	gpio_isr_handler_add(ENCODER_PIN_A, encoder_interrupt_handler, (void*)ENCODER_PIN_A);
-	gpio_isr_handler_add(ENCODER_PIN_B, encoder_interrupt_handler, (void*)ENCODER_PIN_B);
 	gpio_isr_handler_add(BUTTON_PIN, button_interrupt_handler, (void*)BUTTON_PIN);
 
 	rpm_timer_init();
 	speed_timer_init();
 
-  for(int i=0;i<=119;i++)
-    ESP_LOGI(tag, "Crank: %3d:%1d",i,crankValue[i]);
+  esp_log_level_set(TAG_Encoder, ESP_LOG_DEBUG); 
+  ESP_LOGD(TAG_Encoder, "Encoder Logging active");
+ 
 }
 
 void calcRPMFrequency()
