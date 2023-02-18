@@ -16,6 +16,8 @@
 
 
 #define tag "SSD1306"
+//Log for Encoder
+#define TAG_Encoder "Encoder"
 
 #define ENCODER_PIN_A 26
 #define ENCODER_PIN_B 27
@@ -45,7 +47,7 @@ volatile int encoderPinALast = LOW;
 volatile int encoderPinANow = LOW;
 unsigned long debounce_button = 0;
 int debounce_time_button = 50;
-unsigned long debounce_encoder = 0;
+unsigned long debounce_encoder = 50;
 int debounce_time_encoder = 0;
 int incSpeed = 5;
 int incRPM = 500;
@@ -59,11 +61,9 @@ uint32_t coreFrequency = 40000000;
 gptimer_handle_t gptimer_rpm = NULL;
 gptimer_handle_t gptimer_speed = NULL;
 //Interrupt Queue
-QueueHandle_t interputQueue;
-//Log for Encoder
-static const char* TAG_Encoder = "Encoder";
+static QueueHandle_t interputQueue = NULL;
 
-static void encoder_interrupt_handler(void *args)
+static void IRAM_ATTR encoder_interrupt_handler(void *args)
 {
   if((xTaskGetTickCount()-debounce_encoder)>debounce_time_encoder)
   {
@@ -78,20 +78,20 @@ static void encoder_interrupt_handler(void *args)
       {
         encoderPos = 1;
       }
-      encoderPinALast = encoderPinANow;
       xQueueSendFromISR(interputQueue, &encoderPos, NULL);
       debounce_encoder=xTaskGetTickCount();
     }
   }
+  encoderPinALast = encoderPinANow;
 }
 
-void Encoder_Control_Task(void *params)
+static void Encoder_Control_Task(void *params)
 {
   int encoderPos = 0;
   while (true)
   {
     if (xQueueReceive(interputQueue, &encoderPos, portMAX_DELAY))
-    ESP_LOGD(TAG_Encoder, "Encoder Position: %d", encoderPos);
+    ESP_LOGI(TAG_Encoder, "Encoder Position: %d", encoderPos);
     {
       if(mode == SPEED_MODE)
       {
@@ -205,7 +205,7 @@ void setup(void)
   gpio_config(&io_conf);
     
 //configure encoder pin B
-  io_conf.intr_type = GPIO_INTR_DISABLE;
+  io_conf.intr_type = GPIO_INTR_ANYEDGE;
   io_conf.mode = GPIO_MODE_INPUT;
   io_conf.pin_bit_mask = GPIO_BIT_MASK_ENCODER_PIN_B;
   io_conf.pull_down_en = 0;
@@ -229,15 +229,16 @@ void setup(void)
   interputQueue = xQueueCreate(10, sizeof(int));
   xTaskCreate(Encoder_Control_Task, "Encoer_Control_Task", 2048, NULL, 1, NULL);
 
-  gpio_install_isr_service(0);
+  gpio_install_isr_service(ESP_INTR_FLAG_LEVEL3);
 	gpio_isr_handler_add(ENCODER_PIN_A, encoder_interrupt_handler, (void*)ENCODER_PIN_A);
-	gpio_isr_handler_add(BUTTON_PIN, button_interrupt_handler, (void*)BUTTON_PIN);
+	gpio_isr_handler_add(ENCODER_PIN_B, encoder_interrupt_handler, (void*)ENCODER_PIN_B);
+  gpio_isr_handler_add(BUTTON_PIN, button_interrupt_handler, (void*)BUTTON_PIN);
 
 	rpm_timer_init();
 	speed_timer_init();
 
   esp_log_level_set(TAG_Encoder, ESP_LOG_DEBUG); 
-  ESP_LOGD(TAG_Encoder, "Encoder Logging active");
+  ESP_LOGI(TAG_Encoder, "Encoder Logging active");
  
 }
 
@@ -278,7 +279,7 @@ void calcSpeedFrequency()
         .flags.auto_reload_on_alarm = 1,
 		.alarm_count = tf,
     };
-	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed, &alarm_config));
+	  ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed, &alarm_config));
     ESP_ERROR_CHECK(gptimer_start(gptimer_speed));
   }
   else
@@ -331,10 +332,10 @@ void app_main(void)
 
 	ssd1306_clear_screen(&dev, false);
 	ssd1306_contrast(&dev, 0xff);
-    ssd1306_display_text(&dev, 0, "Speed [km/h]", 12, false);
-    ssd1306_display_text(&dev, 4, "Engine [rpm]", 17, false);
+  ssd1306_display_text(&dev, 0, "Speed [km/h]", 12, false);
+  ssd1306_display_text(&dev, 4, "Engine [rpm]", 17, false);
 
-
+  ESP_LOGI(TAG_Encoder, "Encoder Logging enabled");
   while(1)
   {
 	  if(mode != old_mode)
