@@ -19,6 +19,7 @@
 //Log for Encoder
 #define TAG_Encoder "Encoder"
 
+#define DIR 1;
 #define ENCODER_PIN_A 26
 #define ENCODER_PIN_B 27
 #define BUTTON_PIN 25
@@ -45,12 +46,14 @@ int mode = RPM_MODE;
 int old_mode = RPM_MODE;
 volatile int encoderPinALast = LOW;
 volatile int encoderPinANow = LOW;
+volatile int encoderPinBLast = LOW;
+volatile int encoderPinBNow = LOW;
 unsigned long debounce_button = 0;
 int debounce_time_button = 50;
-unsigned long debounce_encoder = 50;
+unsigned long debounce_encoder = 5000;
 int debounce_time_encoder = 0;
 int incSpeed = 5;
-int incRPM = 500;
+int incRPM = 100;
 int maxSpeed = 300;
 int maxRPM = 16000;
 int encoderPos = 0;
@@ -68,21 +71,67 @@ static void IRAM_ATTR encoder_interrupt_handler(void *args)
   if((xTaskGetTickCount()-debounce_encoder)>debounce_time_encoder)
   {
     encoderPinANow = gpio_get_level(ENCODER_PIN_A);
-    if ((encoderPinALast == HIGH) && (encoderPinANow == LOW)) 
+    encoderPinBNow = gpio_get_level(ENCODER_PIN_B);
+    //Case 1 Slope Pin A Low -> High
+    if ((encoderPinALast == HIGH) && (encoderPinANow == LOW))
     {
-      if (gpio_get_level(ENCODER_PIN_B) == HIGH) 
+      if (encoderPinBNow == HIGH) 
       {
-        encoderPos = -1;
+        encoderPos = 1 * DIR;
       } 
       else 
       {
-        encoderPos = 1;
+        encoderPos = -1 * DIR;
       }
-      xQueueSendFromISR(interputQueue, &encoderPos, NULL);
-      debounce_encoder=xTaskGetTickCount();
     }
-  }
-  encoderPinALast = encoderPinANow;
+    else
+    {
+      //Case 1 Slope Pin A High -> Low
+      if ((encoderPinALast == LOW) && (encoderPinANow == HIGH))
+      {
+        if (encoderPinBNow == LOW) 
+        {
+          encoderPos = 1 * DIR;
+        } 
+        else 
+        {
+          encoderPos = -1 * DIR;
+        }
+      }
+      else
+      {
+        if ((encoderPinBLast == HIGH) && (encoderPinBNow == LOW))
+        {
+          if (encoderPinANow == LOW) 
+          {
+            encoderPos = 1 * DIR;
+          } 
+          else 
+          {
+            encoderPos = -1 * DIR;
+          }
+        }
+        else
+        {
+          if ((encoderPinBLast == LOW) && (encoderPinBNow == HIGH))
+          {
+            if (encoderPinANow == HIGH) 
+            {
+              encoderPos = 1 * DIR;
+            }   
+            else 
+            {
+              encoderPos = -1 * DIR;
+            }
+          }
+        }
+      }
+    }
+    debounce_encoder=xTaskGetTickCount();
+    xQueueSendFromISR(interputQueue, &encoderPos, NULL);
+    encoderPinALast = encoderPinANow;
+    encoderPinBLast = encoderPinBNow;
+  } 
 }
 
 static void Encoder_Control_Task(void *params)
