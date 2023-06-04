@@ -4,6 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -50,8 +51,8 @@ volatile int encoderPinBLast = LOW;
 volatile int encoderPinBNow = LOW;
 unsigned long debounce_button = 0;
 int debounce_time_button = 50;
-unsigned long debounce_encoder = 5000;
-int debounce_time_encoder = 0;
+int64_t debounce_encoder = 0;
+int64_t debounce_time_encoder = 1000;
 int incSpeed = 5;
 int incRPM = 100;
 int maxSpeed = 300;
@@ -68,9 +69,10 @@ static QueueHandle_t interputQueue = NULL;
 
 static void IRAM_ATTR encoder_interrupt_handler(void *args)
 {
-  if((xTaskGetTickCount()-debounce_encoder)>debounce_time_encoder)
+  int64_t start = esp_timer_get_time();
+  if((start-debounce_encoder)>debounce_time_encoder)
   {
-    encoderPinANow = gpio_get_level(ENCODER_PIN_A);
+     encoderPinANow = gpio_get_level(ENCODER_PIN_A);
     encoderPinBNow = gpio_get_level(ENCODER_PIN_B);
     //Case 1 Slope Pin A Low -> High
     if ((encoderPinALast == HIGH) && (encoderPinANow == LOW))
@@ -127,7 +129,7 @@ static void IRAM_ATTR encoder_interrupt_handler(void *args)
         }
       }
     }
-    debounce_encoder=xTaskGetTickCount();
+    debounce_encoder = esp_timer_get_time();
     xQueueSendFromISR(interputQueue, &encoderPos, NULL);
     encoderPinALast = encoderPinANow;
     encoderPinBLast = encoderPinBNow;
@@ -180,7 +182,7 @@ static bool rpm_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data
   gpio_set_level(SIGNAL_RPM_PIN,crankValue[counter]);
   counter--;
   if(counter==-1)
-    counter=119;
+    counter=120;
   return pdTRUE;
 }
 
