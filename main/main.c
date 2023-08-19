@@ -4,6 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -19,6 +20,7 @@
 //Log for Encoder
 #define TAG_Encoder "Encoder"
 
+#define DIR 1;
 #define ENCODER_PIN_A 26
 #define ENCODER_PIN_B 27
 #define BUTTON_PIN 25
@@ -27,8 +29,11 @@
 #define GPIO_BIT_MASK_BUTTON  (1ULL<<GPIO_NUM_25)
 
 
-#define SIGNAL_RPM_PIN 18 //12
-#define SIGNAL_WHEEL_PIN 19 //14
+#define SIGNAL_RPM_PIN 19 
+#define SIGNAL_WHEEL_PIN_VR 18
+#define SIGNAL_WHEEL_PIN_HR 21
+
+
 #define GPIO_BIT_MASK_SIGNAL  ((1ULL<<GPIO_NUM_18) | (1ULL<<GPIO_NUM_19)) 
 //Test pins for input signals
 #define GPIO_BIT_MASK_SIGNALTEST  ((1ULL<<GPIO_NUM_12) | (1ULL<<GPIO_NUM_14)) 
@@ -45,12 +50,14 @@ int mode = RPM_MODE;
 int old_mode = RPM_MODE;
 volatile int encoderPinALast = LOW;
 volatile int encoderPinANow = LOW;
+volatile int encoderPinBLast = LOW;
+volatile int encoderPinBNow = LOW;
 unsigned long debounce_button = 0;
 int debounce_time_button = 50;
-unsigned long debounce_encoder = 50;
-int debounce_time_encoder = 0;
+int64_t debounce_encoder = 0;
+int64_t debounce_time_encoder = 1000;
 int incSpeed = 5;
-int incRPM = 500;
+int incRPM = 100;
 int maxSpeed = 300;
 int maxRPM = 16000;
 int encoderPos = 0;
@@ -65,24 +72,71 @@ static QueueHandle_t interputQueue = NULL;
 
 static void IRAM_ATTR encoder_interrupt_handler(void *args)
 {
-  if((xTaskGetTickCount()-debounce_encoder)>debounce_time_encoder)
+  int64_t start = esp_timer_get_time();
+  if((start-debounce_encoder)>debounce_time_encoder)
   {
     encoderPinANow = gpio_get_level(ENCODER_PIN_A);
-    if ((encoderPinALast == HIGH) && (encoderPinANow == LOW)) 
+    encoderPinBNow = gpio_get_level(ENCODER_PIN_B);
+    //Case 1 Slope Pin A Low -> High
+    if ((encoderPinALast == HIGH) && (encoderPinANow == LOW))
     {
-      if (gpio_get_level(ENCODER_PIN_B) == HIGH) 
+      if (encoderPinBNow == HIGH) 
       {
-        encoderPos = -1;
+        encoderPos = -1 * DIR;
       } 
       else 
       {
-        encoderPos = 1;
+        encoderPos = 1 * DIR;
       }
-      xQueueSendFromISR(interputQueue, &encoderPos, NULL);
-      debounce_encoder=xTaskGetTickCount();
     }
-  }
-  encoderPinALast = encoderPinANow;
+    else
+    {
+      //Case 1 Slope Pin A High -> Low
+      if ((encoderPinALast == LOW) && (encoderPinANow == HIGH))
+      {
+        if (encoderPinBNow == LOW) 
+        {
+          encoderPos = -1 * DIR;
+        } 
+        else 
+        {
+          encoderPos = 1 * DIR;
+        }
+      }
+      else
+      {
+        if ((encoderPinBLast == HIGH) && (encoderPinBNow == LOW))
+        {
+          if (encoderPinANow == LOW) 
+          {
+            encoderPos = -1 * DIR;
+          } 
+          else 
+          {
+            encoderPos = 1 * DIR;
+          }
+        }
+        else
+        {
+          if ((encoderPinBLast == LOW) && (encoderPinBNow == HIGH))
+          {
+            if (encoderPinANow == HIGH) 
+            {
+              encoderPos = -1 * DIR;
+            }   
+            else 
+            {
+              encoderPos = 1 * DIR;
+            }
+          }
+        }
+      }
+    }
+    debounce_encoder = esp_timer_get_time();
+    xQueueSendFromISR(interputQueue, &encoderPos, NULL);
+    encoderPinALast = encoderPinANow;
+    encoderPinBLast = encoderPinBNow;
+  } 
 }
 
 static void Encoder_Control_Task(void *params)
@@ -131,14 +185,15 @@ static bool rpm_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data
   gpio_set_level(SIGNAL_RPM_PIN,crankValue[counter]);
   counter--;
   if(counter==-1)
-    counter=119;
+    counter=120;
   return pdTRUE;
 }
 
 static bool speed_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
 { 
   speedSignal = !speedSignal;
-  gpio_set_level(SIGNAL_WHEEL_PIN, speedSignal);
+  gpio_set_level(SIGNAL_WHEEL_PIN_VR, speedSignal);
+  gpio_set_level(SIGNAL_WHEEL_PIN_HR, speedSignal);
 //  gpio_set_level(SIGNAL_WHEEL_PIN, 1);
   return pdTRUE;
 }
