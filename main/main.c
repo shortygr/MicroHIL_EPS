@@ -29,8 +29,11 @@
 #define GPIO_BIT_MASK_BUTTON  (1ULL<<GPIO_NUM_25)
 
 
-#define SIGNAL_RPM_PIN 18 //12
-#define SIGNAL_WHEEL_PIN 19 //14
+#define SIGNAL_RPM_PIN 19 
+#define SIGNAL_WHEEL_PIN_VR 18
+#define SIGNAL_WHEEL_PIN_HR 21
+
+
 #define GPIO_BIT_MASK_SIGNAL  ((1ULL<<GPIO_NUM_18) | (1ULL<<GPIO_NUM_19)) 
 //Test pins for input signals
 #define GPIO_BIT_MASK_SIGNALTEST  ((1ULL<<GPIO_NUM_12) | (1ULL<<GPIO_NUM_14)) 
@@ -72,18 +75,18 @@ static void IRAM_ATTR encoder_interrupt_handler(void *args)
   int64_t start = esp_timer_get_time();
   if((start-debounce_encoder)>debounce_time_encoder)
   {
-     encoderPinANow = gpio_get_level(ENCODER_PIN_A);
+    encoderPinANow = gpio_get_level(ENCODER_PIN_A);
     encoderPinBNow = gpio_get_level(ENCODER_PIN_B);
     //Case 1 Slope Pin A Low -> High
     if ((encoderPinALast == HIGH) && (encoderPinANow == LOW))
     {
       if (encoderPinBNow == HIGH) 
       {
-        encoderPos = 1 * DIR;
+        encoderPos = -1 * DIR;
       } 
       else 
       {
-        encoderPos = -1 * DIR;
+        encoderPos = 1 * DIR;
       }
     }
     else
@@ -93,11 +96,11 @@ static void IRAM_ATTR encoder_interrupt_handler(void *args)
       {
         if (encoderPinBNow == LOW) 
         {
-          encoderPos = 1 * DIR;
+          encoderPos = -1 * DIR;
         } 
         else 
         {
-          encoderPos = -1 * DIR;
+          encoderPos = 1 * DIR;
         }
       }
       else
@@ -106,11 +109,11 @@ static void IRAM_ATTR encoder_interrupt_handler(void *args)
         {
           if (encoderPinANow == LOW) 
           {
-            encoderPos = 1 * DIR;
+            encoderPos = -1 * DIR;
           } 
           else 
           {
-            encoderPos = -1 * DIR;
+            encoderPos = 1 * DIR;
           }
         }
         else
@@ -119,11 +122,11 @@ static void IRAM_ATTR encoder_interrupt_handler(void *args)
           {
             if (encoderPinANow == HIGH) 
             {
-              encoderPos = 1 * DIR;
+              encoderPos = -1 * DIR;
             }   
             else 
             {
-              encoderPos = -1 * DIR;
+              encoderPos = 1 * DIR;
             }
           }
         }
@@ -189,7 +192,8 @@ static bool rpm_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data
 static bool speed_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
 { 
   speedSignal = !speedSignal;
-  gpio_set_level(SIGNAL_WHEEL_PIN, speedSignal);
+  gpio_set_level(SIGNAL_WHEEL_PIN_VR, speedSignal);
+  gpio_set_level(SIGNAL_WHEEL_PIN_HR, speedSignal);
 //  gpio_set_level(SIGNAL_WHEEL_PIN, 1);
   return pdTRUE;
 }
