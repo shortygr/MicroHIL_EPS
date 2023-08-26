@@ -34,7 +34,7 @@
 #define SIGNAL_WHEEL_PIN_HR 17
 
 
-#define GPIO_BIT_MASK_SIGNAL  ((1ULL<<GPIO_NUM_18) | (1ULL<<GPIO_NUM_19)) 
+#define GPIO_BIT_MASK_SIGNAL  ((1ULL<<GPIO_NUM_18) | (1ULL<<GPIO_NUM_19)  | (1ULL<<GPIO_NUM_17)) 
 //Test pins for input signals
 #define GPIO_BIT_MASK_SIGNALTEST  ((1ULL<<GPIO_NUM_12) | (1ULL<<GPIO_NUM_14)) 
 
