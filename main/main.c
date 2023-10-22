@@ -194,7 +194,6 @@ static bool speed_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_da
   speedSignal = !speedSignal;
   gpio_set_level(SIGNAL_WHEEL_PIN_VR, speedSignal);
   gpio_set_level(SIGNAL_WHEEL_PIN_HR, speedSignal);
-//  gpio_set_level(SIGNAL_WHEEL_PIN, 1);
   return pdTRUE;
 }
 
@@ -294,7 +293,12 @@ void setup(void)
 
   esp_log_level_set(TAG_Encoder, ESP_LOG_DEBUG); 
   ESP_LOGI(TAG_Encoder, "Encoder Logging active");
+
+  gpio_set_drive_capability(SIGNAL_WHEEL_PIN_VR, GPIO_DRIVE_CAP_3);
+  gpio_set_drive_capability(SIGNAL_WHEEL_PIN_HR, GPIO_DRIVE_CAP_3);
  
+
+
 }
 
 void calcRPMFrequency()
