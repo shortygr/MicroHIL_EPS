@@ -63,6 +63,8 @@ int maxRPM = 16000;
 int encoderPos = 0;
 int counter = 120;
 int speedSignal = 0;
+bool speedTimerIsRunning = false;
+bool rpmTimerIsRunning = false;
 //int prescaler_speed = 2;
 uint32_t coreFrequency = 40000000;
 gptimer_handle_t gptimer_rpm = NULL;
@@ -203,7 +205,7 @@ static void rpm_timer_init()
 	gptimer_config_t timer_config = {
     	.clk_src = GPTIMER_CLK_SRC_DEFAULT,
     	.direction = GPTIMER_COUNT_UP,
-    	.resolution_hz = coreFrequency, 
+    	.resolution_hz = coreFrequency
 	};
     ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer_rpm));
 
@@ -218,7 +220,6 @@ static void rpm_timer_init()
   };
 	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer_rpm, &cbs, (void*) NULL));
   ESP_ERROR_CHECK(gptimer_enable(gptimer_rpm));
-  ESP_ERROR_CHECK(gptimer_stop(gptimer_rpm));
 }
 
 static void speed_timer_init()
@@ -226,7 +227,7 @@ static void speed_timer_init()
 	gptimer_config_t timer_config = {
     	.clk_src = GPTIMER_CLK_SRC_DEFAULT,
     	.direction = GPTIMER_COUNT_UP,
-    	.resolution_hz = coreFrequency, 
+    	.resolution_hz = coreFrequency
 	};
     ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer_speed));
 
@@ -241,7 +242,6 @@ static void speed_timer_init()
   }	;
 	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer_speed, &cbs, (void*) NULL));
   ESP_ERROR_CHECK(gptimer_enable(gptimer_speed));
-  ESP_ERROR_CHECK(gptimer_stop(gptimer_speed));
 }
 
 
@@ -296,8 +296,6 @@ void setup(void)
 
   gpio_set_drive_capability(SIGNAL_WHEEL_PIN_VR, GPIO_DRIVE_CAP_3);
   gpio_set_drive_capability(SIGNAL_WHEEL_PIN_HR, GPIO_DRIVE_CAP_3);
- 
-
 
 }
 
@@ -313,12 +311,20 @@ void calcRPMFrequency()
         .flags.auto_reload_on_alarm = 1,
 		.alarm_count = tf,
     };
-	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_rpm, &alarm_config));
-  ESP_ERROR_CHECK(gptimer_start(gptimer_rpm));
+    if(rpmTimerIsRunning)
+    {
+      ESP_ERROR_CHECK(gptimer_stop(gptimer_rpm));
+    }  
+	  ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_rpm, &alarm_config));
+    ESP_ERROR_CHECK(gptimer_start(gptimer_rpm));
+    rpmTimerIsRunning = true;
   }
   else
   {
-    ESP_ERROR_CHECK(gptimer_stop(gptimer_rpm));
+    if(rpmTimerIsRunning)
+    {
+      ESP_ERROR_CHECK(gptimer_stop(gptimer_rpm));
+    }  
   }
 }
 
@@ -338,12 +344,20 @@ void calcSpeedFrequency()
         .flags.auto_reload_on_alarm = 1,
 		.alarm_count = tf,
     };
+    if(speedTimerIsRunning)
+    {
+      ESP_ERROR_CHECK(gptimer_stop(gptimer_speed));
+    }
 	  ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed, &alarm_config));
     ESP_ERROR_CHECK(gptimer_start(gptimer_speed));
+    speedTimerIsRunning = true;
   }
   else
   {
-    ESP_ERROR_CHECK(gptimer_stop(gptimer_speed));
+    if(speedTimerIsRunning)
+    {
+      ESP_ERROR_CHECK(gptimer_stop(gptimer_speed));
+    }
   }
 
 }
