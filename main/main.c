@@ -41,6 +41,7 @@
 
 #define SPEED_MODE 0
 #define RPM_MODE   1
+#define CONFIG_MODE 2
 
 volatile int enginespeed = 0;
 int old_enginespeed = -1;
@@ -62,13 +63,17 @@ int maxSpeed = 300;
 int maxRPM = 16000;
 int encoderPos = 0;
 int counter = 120;
-int speedSignal = 0;
+int speedSignalFront = 0;
+int speedSignalRear = 0;
+
 bool speedTimerIsRunning = false;
 bool rpmTimerIsRunning = false;
 //int prescaler_speed = 2;
 uint32_t coreFrequency = 40000000;
 gptimer_handle_t gptimer_rpm = NULL;
-gptimer_handle_t gptimer_speed = NULL;
+gptimer_handle_t gptimer_speed_front = NULL;
+gptimer_handle_t gptimer_speed_rear = NULL;
+
 //Interrupt Queue
 static QueueHandle_t interputQueue = NULL;
 
@@ -191,11 +196,17 @@ static bool rpm_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data
   return pdTRUE;
 }
 
-static bool speed_timer_isr(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
+static bool speed_timer_front_isr(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
 { 
-  speedSignal = !speedSignal;
-  gpio_set_level(SIGNAL_WHEEL_PIN_VR, speedSignal);
-  gpio_set_level(SIGNAL_WHEEL_PIN_HR, speedSignal);
+  speedSignalFront = !speedSignalFront;
+  gpio_set_level(SIGNAL_WHEEL_PIN_VR, speedSignalFront);
+  return pdTRUE;
+}
+
+static bool speed_timer_rear_isr(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
+{ 
+  speedSignalRear = !speedSignalRear;
+  gpio_set_level(SIGNAL_WHEEL_PIN_HR, speedSignalRear);
   return pdTRUE;
 }
 
@@ -222,14 +233,14 @@ static void rpm_timer_init()
   ESP_ERROR_CHECK(gptimer_enable(gptimer_rpm));
 }
 
-static void speed_timer_init()
+static void speed_timer_front_init()
 {
 	gptimer_config_t timer_config = {
     	.clk_src = GPTIMER_CLK_SRC_DEFAULT,
     	.direction = GPTIMER_COUNT_UP,
     	.resolution_hz = coreFrequency
 	};
-    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer_speed));
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer_speed_front));
 
 /* 	gptimer_alarm_config_t alarm_config = {
         .flags.auto_reload_on_alarm = 1,
@@ -238,12 +249,33 @@ static void speed_timer_init()
 	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed, &alarm_config));
  */
 	gptimer_event_callbacks_t cbs = {
-    	.on_alarm = speed_timer_isr, // register user callback
+    	.on_alarm = speed_timer_front_isr, // register user callback
   }	;
-	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer_speed, &cbs, (void*) NULL));
-  ESP_ERROR_CHECK(gptimer_enable(gptimer_speed));
+	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer_speed_front, &cbs, (void*) NULL));
+  ESP_ERROR_CHECK(gptimer_enable(gptimer_speed_front));
 }
 
+static void speed_timer_rear_init()
+{
+	gptimer_config_t timer_config = {
+    	.clk_src = GPTIMER_CLK_SRC_DEFAULT,
+    	.direction = GPTIMER_COUNT_UP,
+    	.resolution_hz = coreFrequency
+	};
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer_speed_rear));
+
+/* 	gptimer_alarm_config_t alarm_config = {
+        .flags.auto_reload_on_alarm = 1,
+		.alarm_count = 800000,
+    };
+	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed, &alarm_config));
+ */
+	gptimer_event_callbacks_t cbs = {
+    	.on_alarm = speed_timer_rear_isr, // register user callback
+  }	;
+	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer_speed_rear, &cbs, (void*) NULL));
+  ESP_ERROR_CHECK(gptimer_enable(gptimer_speed_rear));
+}
 
 
 void setup(void)
@@ -289,7 +321,8 @@ void setup(void)
   gpio_isr_handler_add(BUTTON_PIN, button_interrupt_handler, (void*)BUTTON_PIN);
 
 	rpm_timer_init();
-	speed_timer_init();
+  speed_timer_front_init();
+  speed_timer_rear_init();
 
   esp_log_level_set(TAG_Encoder, ESP_LOG_DEBUG); 
   ESP_LOGI(TAG_Encoder, "Encoder Logging active");
@@ -331,32 +364,44 @@ void calcRPMFrequency()
 void calcSpeedFrequency()
 {
   float speedms; 
-  float ff;
-  float f;
-  uint64_t tf;
+  float fff,ffr;
+  float ff,fr;
+  uint64_t tff,tfr;
   if(vehiclespeed > 0)
   {
     speedms = vehiclespeed/3.6;
-    ff = speedms/rollingCircumference*pulsesPerRotation;
-    f = 2*ff;
-    tf=round(coreFrequency/f-1);
-	gptimer_alarm_config_t alarm_config = {
+    fff = speedms/rollingCircumferenceFF*pulsesPerRotation;
+    ffr = speedms/rollingCircumferenceRR*pulsesPerRotation;
+    ff = 2*fff;
+    fr = 2*ffr;
+    tff=round(coreFrequency/ff-1);
+    tfr=round(coreFrequency/fr-1);
+	gptimer_alarm_config_t alarm_config_front = {
         .flags.auto_reload_on_alarm = 1,
-		.alarm_count = tf,
+		.alarm_count = tff,
+    };
+    gptimer_alarm_config_t alarm_config_rear = {
+        .flags.auto_reload_on_alarm = 1,
+		.alarm_count = tfr,
     };
     if(speedTimerIsRunning)
     {
-      ESP_ERROR_CHECK(gptimer_stop(gptimer_speed));
+      ESP_ERROR_CHECK(gptimer_stop(gptimer_speed_front));
+      ESP_ERROR_CHECK(gptimer_stop(gptimer_speed_rear));
     }
-	  ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed, &alarm_config));
-    ESP_ERROR_CHECK(gptimer_start(gptimer_speed));
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed_front, &alarm_config_front));
+    ESP_ERROR_CHECK(gptimer_start(gptimer_speed_front));
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer_speed_rear, &alarm_config_rear));
+    ESP_ERROR_CHECK(gptimer_start(gptimer_speed_rear));
     speedTimerIsRunning = true;
   }
   else
   {
     if(speedTimerIsRunning)
     {
-      ESP_ERROR_CHECK(gptimer_stop(gptimer_speed));
+      ESP_ERROR_CHECK(gptimer_stop(gptimer_speed_front));
+      ESP_ERROR_CHECK(gptimer_stop(gptimer_speed_rear));
+      speedTimerIsRunning = false;
     }
   }
 

@@ -2,7 +2,8 @@
 #define LOW 1
 #define HIGH 0
 
-float rollingCircumference = 1.959;
+float rollingCircumferenceFF = 1.959;
+float rollingCircumferenceRR = 1.959;
 int pulsesPerRotation = 48;
 
 //Revese seeting of signal as we switch to ground on LOW level
